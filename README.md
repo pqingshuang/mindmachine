@@ -44,7 +44,7 @@ The Mindmachine state began at Block 761151.
 
 4. Add this repository as an upstream source and pull any changes:
 ```
-git remote add upstream git://github.com/stackerstan/mindmachine //only needs to be done once
+git remote add upstream git@github.com/stackerstan/mindmachine //only needs to be done once
 git checkout master //just to make sure you're on the correct branch
 git pull upstream master //this grabs any code that has changed, you want to be working on the latest 'version'
 git push //update your remote fork with the changes you just pulled from upstream master
