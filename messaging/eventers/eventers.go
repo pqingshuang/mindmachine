@@ -1,6 +1,7 @@
-// Package eventers lets us compose State from any Mind(s) into Events to be consumed by the interfarce.
-//all Events produce by the eventer are signed by our local wallet
-//events produced by this package MUST NOT be sent to relays (except maybe to fiatjaf's relays as punishment for branle)
+// Package eventers lets us compose State from any Mind(s) into Events to
+// be consumed by the interfarce.
+// all Events produce by the eventer are signed by our local wallet
+// events produced by this package MUST NOT be sent to relays (except maybe to fiatjaf's relays as punishment for branle)
 package eventers
 
 import (
@@ -84,6 +85,12 @@ func handleSubscription(sub nostrelay.Subscription) {
 					//todo keep this updated by sending new event every block. We could do this by subscribing to mindmachine.CurrentState
 					sub.Events <- currentState()
 					close(sub.Terminate)
+				case "expenses":
+					for _, event := range allExpenses() {
+						sub.Events <- event
+					}
+					close(sub.Terminate)
+					//to do , get all shares
 				default:
 					close(sub.Terminate)
 				}
@@ -362,6 +369,40 @@ func allProblems() (e []nostr.Event) {
 				}
 			}
 		}
+	}
+	event := nostr.Event{
+		PubKey:    mindmachine.MyWallet().Account,
+		CreatedAt: time.Now(),
+		Kind:      640897,
+		Content:   "",
+	}
+	event.ID = event.GetID()
+	event.Sign(mindmachine.MyWallet().PrivateKey)
+	e = append(e, event)
+	return
+}
+func allExpenses() (e []nostr.Event) {
+	for _, item := range shares.GetAllExpenses() {
+		event := nostr.Event{
+			PubKey:    mindmachine.MyWallet().Account,
+			CreatedAt: time.Now(),
+			Kind:      640899,
+			//Tags:      makeProblemTags(item),
+		}
+		var content string
+		fmt.Printf("%+v\n", item, event, content)
+		//if evts, ok := nostrelay.FetchEventPack([]string{item.Title, item.Description}); ok {
+		//	//content = evts[0].Content + "\n\n"
+		//	content += evts[1].Content
+		//	if len(evts[0].Content) > 0 {
+		//		event.Tags = makeProblemTags(item, evts[0].Content)
+		//		if len(evts[1].Content) > 0 {
+		//			event.Content = content
+		//			event.Sign(mindmachine.MyWallet().PrivateKey)
+		//			e = append(e, event)
+		//		}
+		//	}
+		//}
 	}
 	event := nostr.Event{
 		PubKey:    mindmachine.MyWallet().Account,
