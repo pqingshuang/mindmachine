@@ -383,31 +383,28 @@ func allProblems() (e []nostr.Event) {
 }
 func allExpenses() (e []nostr.Event) {
 	for _, item := range shares.GetAllExpenses() {
+		j, err := json.Marshal(item)
+		if err != nil {
+			mindmachine.LogCLI(err.Error(), 1)
+			return
+		}
 		event := nostr.Event{
 			PubKey:    mindmachine.MyWallet().Account,
 			CreatedAt: time.Now(),
-			Kind:      640899,
+			Kind:      640204,
+			Content:   fmt.Sprintf("%s", j),
 			//Tags:      makeProblemTags(item),
 		}
-		var content string
-		fmt.Printf("%+v\n", item, event, content)
-		//if evts, ok := nostrelay.FetchEventPack([]string{item.Title, item.Description}); ok {
-		//	//content = evts[0].Content + "\n\n"
-		//	content += evts[1].Content
-		//	if len(evts[0].Content) > 0 {
-		//		event.Tags = makeProblemTags(item, evts[0].Content)
-		//		if len(evts[1].Content) > 0 {
-		//			event.Content = content
-		//			event.Sign(mindmachine.MyWallet().PrivateKey)
-		//			e = append(e, event)
-		//		}
-		//	}
-		//}
+
+		fmt.Printf("%+v\n", item, event)
+		event.ID = event.GetID()
+		event.Sign(mindmachine.MyWallet().PrivateKey)
+		e = append(e, event)
 	}
 	event := nostr.Event{
 		PubKey:    mindmachine.MyWallet().Account,
 		CreatedAt: time.Now(),
-		Kind:      640897,
+		Kind:      640207,
 		Content:   "",
 	}
 	event.ID = event.GetID()
