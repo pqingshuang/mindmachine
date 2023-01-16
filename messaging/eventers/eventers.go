@@ -23,6 +23,7 @@ import (
 	"mindmachine/consensus/shares"
 	"mindmachine/messaging/nostrelay"
 	"mindmachine/mindmachine"
+	"mindmachine/scumclass/eventbucket"
 )
 
 func Start() {
@@ -85,18 +86,57 @@ func handleSubscription(sub nostrelay.Subscription) {
 					//todo keep this updated by sending new event every block. We could do this by subscribing to mindmachine.CurrentState
 					sub.Events <- currentState()
 					close(sub.Terminate)
+<<<<<<< HEAD
 				case "expenses":
 					for _, event := range allExpenses() {
 						sub.Events <- event
 					}
 					close(sub.Terminate)
 					//to do , get all shares
+=======
+				case "eventbucket":
+					for _, event := range getAllEventBucketKinds() {
+						sub.Events <- event
+					}
+					close(sub.Terminate)
+>>>>>>> 36026be5dfee539afaebbf03ad9ca9d08c99de2f
 				default:
 					close(sub.Terminate)
 				}
 			}
 		}
 	}
+}
+
+func getAllEventBucketKinds() (e []nostr.Event) {
+	kinds := eventbucket.GetNumberOfKinds()
+	for _, kind := range kinds {
+		j, err := json.Marshal(kind)
+		if err != nil {
+			mindmachine.LogCLI(err.Error(), 1)
+		} else {
+			ev := nostr.Event{
+				PubKey:    mindmachine.MyWallet().Account,
+				CreatedAt: time.Now(),
+				Kind:      641699,
+				Tags:      nil,
+				Content:   fmt.Sprintf("%s", j),
+			}
+			ev.ID = ev.GetID()
+			ev.Sign(mindmachine.MyWallet().PrivateKey)
+			e = append(e, ev)
+		}
+	}
+	event := nostr.Event{
+		PubKey:    mindmachine.MyWallet().Account,
+		CreatedAt: time.Now(),
+		Kind:      641651,
+		Content:   "",
+	}
+	event.ID = event.GetID()
+	event.Sign(mindmachine.MyWallet().PrivateKey)
+	e = append(e, event)
+	return e
 }
 
 type Patch struct {

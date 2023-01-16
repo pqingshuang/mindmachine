@@ -22,6 +22,7 @@ import (
 	"mindmachine/messaging/blocks"
 	"mindmachine/messaging/nostrelay"
 	"mindmachine/mindmachine"
+	"mindmachine/scumclass/eventbucket"
 )
 
 func Start(terminate chan struct{}, wg *sync.WaitGroup) {
@@ -37,9 +38,16 @@ func Start(terminate chan struct{}, wg *sync.WaitGroup) {
 	// Start the messagepacker database first so that it's ready to handle any messages created as soon as they appear
 	messagepack.StartBlock(block)
 	conductor.Start(terminate, wg)
+	//_, ok := nostrelay.FetchEventPack(test)
+	//if ok {
+	//	mindmachine.LogCLI("it worked", 3)
+	//	mindmachine.Shutdown()
+	//}
+	mindmachine.PruneDeadOptionalRelays()
 	if !samizdatStarted {
 		subscribeToSamizdat()
 	}
+	go SubscribeToAllEvents(terminate, wg)
 	fetchEventPackLooper()
 	if blocksBehind() > 1 {
 		if shares.VotePowerForAccount(mindmachine.MyWallet().Account) > 0 && mindmachine.MakeOrGetConfig().GetBool("forceBlocks") {
@@ -129,6 +137,7 @@ func fetchEventPackLooper() {
 //todo return the height of the resulting state, and if it isn't the current bitcoin tip try again. If we have votepower and we can't get any higher, start populating blocks.
 //whenever we fall behind the current tip, try to fetch event pack again
 func fetchLatest640001() {
+	//todo: also search relaysOptional if relaysMust fails
 	//return
 	mindmachine.LogCLI("Looking for a kind 640001 Event to catch up to our peers", 4)
 	if !fetching {
@@ -140,19 +149,23 @@ func fetchLatest640001() {
 		//pool := nostrelay.NewRelayPool()
 		pool := nostr.NewRelayPool()
 		mindmachine.LogCLI("Connecting to relay pool", 3)
-		for _, s := range mindmachine.MakeOrGetConfig().GetStringSlice("relays") {
+		var relays []string
+		relays = append(relays, mindmachine.MakeOrGetConfig().GetStringSlice("relaysMust")...)
+		//relays = append(relays, mindmachine.MakeOrGetConfig().GetStringSlice("relaysOptional")...)
+		for _, s := range relays {
 			errchan := pool.Add(s, nostr.SimplePolicy{Read: true, Write: true})
-			go func() {
+			go func(s string) {
 				for err := range errchan {
-					mindmachine.LogCLI(err.Error(), 2)
+					e := fmt.Sprintf("rvyg65: %s", err.Error())
+					mindmachine.LogCLI(fmt.Sprintf("%s %s", e, s), 2)
 				}
-			}()
+			}(s)
 		}
-		defer func() {
-			for _, s := range mindmachine.MakeOrGetConfig().GetStringSlice("relays") {
-				pool.Remove(s)
-			}
-		}()
+		//defer func() {
+		//	for _, s := range mindmachine.MakeOrGetConfig().GetStringSlice("relaysMust") {
+		//		pool.Remove(s)
+		//	}
+		//}()
 
 		accounts := shares.AccountsWithVotepower()
 		var accs []mindmachine.Account
@@ -269,8 +282,8 @@ func fetchLatest640001() {
 		}
 		if shares.VotePowerForAccount(mindmachine.MyWallet().Account) > 0 {
 			for _, state := range states {
-				sequence := sequence.GetSequence(mindmachine.MyWallet().Account)
-				if vpssEvent, ok := hashSeqToSignedVPSS(state, sequence+1); ok {
+				seq := sequence.GetSequence(mindmachine.MyWallet().Account)
+				if vpssEvent, ok := hashSeqToSignedVPSS(state, seq+1); ok {
 					localVpssEvent := mindmachine.ConvertToInternalEvent(&vpssEvent)
 					if _, ok := conductor.HandleMessage(localVpssEvent); ok {
 						nostrelay.PublishEvent(localVpssEvent.Nostr())
@@ -318,16 +331,17 @@ func subscribeToSamizdat() {
 		//pool := nostrelay.NewRelayPool()
 		pool := nostr.NewRelayPool()
 		mindmachine.LogCLI("Connecting to relay pool", 3)
-		for _, s := range mindmachine.MakeOrGetConfig().GetStringSlice("relays") {
+		for _, s := range mindmachine.MakeOrGetConfig().GetStringSlice("relaysMust") {
 			errchan := pool.Add(s, nostr.SimplePolicy{Read: true, Write: true})
 			go func() {
 				for err := range errchan {
-					mindmachine.LogCLI(err.Error(), 2)
+					e := fmt.Sprintf("2f3kut9: %s", err.Error())
+					mindmachine.LogCLI(e, 2)
 				}
 			}()
 		}
 		defer func() {
-			for _, s := range mindmachine.MakeOrGetConfig().GetStringSlice("relays") {
+			for _, s := range mindmachine.MakeOrGetConfig().GetStringSlice("relaysMust") {
 				pool.Remove(s)
 			}
 		}()
@@ -356,22 +370,69 @@ func subscribeToSamizdat() {
 	}
 }
 
+func SubscribeToAllEvents(terminate chan struct{}, wg *sync.WaitGroup) {
+	eventbucket.StartDb(terminate, wg)
+	if len(mindmachine.MakeOrGetConfig().GetStringSlice("relaysOptional")) < 1 {
+		mindmachine.LogCLI("we do not have any optional relays, possible network problem", 2)
+		mindmachine.Shutdown()
+	}
+	pool := nostr.NewRelayPool()
+	mindmachine.LogCLI("Subscribing to Kind 1 Events", 3)
+	relays := mindmachine.MakeOrGetConfig().GetStringSlice("relaysOptional")
+	relays = append(relays, mindmachine.MakeOrGetConfig().GetStringSlice("relaysMust")...)
+	for _, s := range relays {
+		errchan := pool.Add(s, nostr.SimplePolicy{Read: true, Write: true})
+		go func(s string) {
+			for err := range errchan {
+				e := fmt.Sprintf("q9u8mtx: %s", err.Error())
+				mindmachine.LogCLI(fmt.Sprintf("%s %s", e, s), 2)
+			}
+		}(s)
+	}
+
+	filters := nostr.Filters{}
+	filters = append(filters, nostr.Filter{
+		//Kinds: []int{640001},
+	})
+	_, evnts, unsub := pool.Sub(filters)
+	go func() {
+	L:
+		for {
+			select {
+			case e := <-nostr.Unique(evnts):
+				if ok, _ := e.CheckSignature(); ok {
+					eventbucket.HandleEvent(mindmachine.ConvertToInternalEvent(&e))
+				}
+			case <-terminate:
+				unsub()
+				break L
+			case <-time.After(time.Second * 60):
+				unsub()
+				mindmachine.PruneDeadOptionalRelays()
+				go SubscribeToAllEvents(terminate, wg)
+				break L
+			}
+		}
+	}()
+}
+
 func startEventSubscription() {
 	if !started {
 		started = true
 		//pool := nostrelay.NewRelayPool()
 		pool := nostr.NewRelayPool()
 		mindmachine.LogCLI("Connecting to relay pool", 3)
-		for _, s := range mindmachine.MakeOrGetConfig().GetStringSlice("relays") {
+		for _, s := range mindmachine.MakeOrGetConfig().GetStringSlice("relaysMust") {
 			errchan := pool.Add(s, nostr.SimplePolicy{Read: true, Write: true})
 			go func() {
 				for err := range errchan {
-					mindmachine.LogCLI(err.Error(), 2)
+					e := fmt.Sprintf("9u8034: %s", err.Error())
+					mindmachine.LogCLI(e, 2)
 				}
 			}()
 		}
 		defer func() {
-			for _, s := range mindmachine.MakeOrGetConfig().GetStringSlice("relays") {
+			for _, s := range mindmachine.MakeOrGetConfig().GetStringSlice("relaysMust") {
 				pool.Remove(s)
 			}
 		}()
@@ -482,6 +543,7 @@ func startEventSubscription() {
 					//}
 				} else {
 					if height > mindmachine.CurrentState().Processing.Height+1 {
+						//mindmachine.PruneDeadOptionalRelays()
 						go fetchLatest640001()
 					}
 				}
@@ -667,6 +729,8 @@ func publishEventPack(opreturn string, force bool) {
 }
 
 func handleEventPack(events []mindmachine.Event) (states []mindmachine.HashSeq) {
+	//todo: problem: when shutting down we lose data because we keep processing events after databases have been closed
+	//solution: hook into the terminate channel and stop processing events if terminate is called
 	var skip bool
 	for _, event := range events {
 		if event.Kind == 125 {
@@ -683,16 +747,6 @@ func handleEventPack(events []mindmachine.Event) (states []mindmachine.HashSeq) 
 			if height == mindmachine.CurrentState().Processing.Height+1 {
 				skip = false
 			}
-
-			//debug reset
-			//if height > 703190 {
-			//	skip = true
-			//}
-			//if mindmachine.CurrentState().Processing.Height < height-1 {
-			//	fmt.Printf("\n2345kt34\ncurrent state%d\nevent height: %d\n", mindmachine.CurrentState().Processing.Height, height)
-			//	mindmachine.LogCLI("in57v56 this event pack starts too late", 0)
-			//	return
-			//}
 			continue
 		}
 		if !skip {
@@ -704,8 +758,8 @@ func handleEventPack(events []mindmachine.Event) (states []mindmachine.HashSeq) 
 							hs.NailedTo = shares.HashOfCurrentState() //or should we nail this to the latest >500 permille instead of just the latest?
 						}
 						hs.EventID = event.ID
-						sequence := sequence.GetSequence(mindmachine.MyWallet().Account)
-						if vpssEvent, ok := hashSeqToSignedVPSS(hs, sequence+1); ok {
+						seq := sequence.GetSequence(mindmachine.MyWallet().Account)
+						if vpssEvent, ok := hashSeqToSignedVPSS(hs, seq+1); ok {
 							localVpssEvent := mindmachine.ConvertToInternalEvent(&vpssEvent)
 							if !mindstate.RegisterState(localVpssEvent) {
 								mindmachine.LogCLI("this should not happen", 0)
