@@ -3,24 +3,29 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"github.com/sasha-s/go-deadlock"
+	"github.com/spf13/viper"
+	"log"
+	"mindmachine/messaging/blocks"
+	"mindmachine/messaging/eventcatcher"
+	"mindmachine/messaging/eventers"
+	"mindmachine/messaging/nostrelay"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"runtime/trace"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/sasha-s/go-deadlock"
-	"github.com/spf13/viper"
-	"mindmachine/messaging/blocks"
-	"mindmachine/messaging/eventcatcher"
-	"mindmachine/messaging/eventers"
-	"mindmachine/messaging/nostrelay"
-
 	//"github.com/pkg/profile"
 	"mindmachine/mindmachine"
 )
 
 func main() {
+	go func() {
+		log.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
 	mindmachine.SetMaxOpenFiles()
 	delve := false //problem: keep forgetting to turn this off after debug
 	runtrace := false
